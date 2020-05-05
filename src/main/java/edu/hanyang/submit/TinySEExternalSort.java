@@ -37,7 +37,7 @@ public class TinySEExternalSort implements ExternalSort {
 
 		int run_num = 0;
 		try {
-			long run_init_stamp = System.currentTimeMillis();
+//			long run_init_stamp = System.currentTimeMillis();
 			/* Full Run */
 			int loop_size = (tot_input_size/12 - rest_nElement)/nElement;
 //			System.out.println("ele : " + nElement + " tot : "+tot_input_size + " rest : "+rest_nElement + " loop : "+loop_size);
@@ -61,7 +61,7 @@ public class TinySEExternalSort implements ExternalSort {
 
 				/* init runs to file */
 				dout = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(tmpdir + File.separator + "run_0_" + run_num + ".data"),blocksize));
-				for (int ele=0; ele<nElement;ele++) {
+				for (int ele=0; ele<rest_nElement;ele++) {
 					dout.writeInt(runs[ele].getLeft());
 					dout.writeInt(runs[ele].getMiddle());
 					dout.writeInt(runs[ele].getRight());
@@ -79,9 +79,9 @@ public class TinySEExternalSort implements ExternalSort {
 					runs[i].setRight(dis.readInt());
 				}
 
-				Arrays.sort(runs,new TripleSort());
+				Arrays.sort(runs,0,rest_nElement,new TripleSort());
 				dout = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(tmpdir + File.separator + "run_0_" + run_num + ".data"),blocksize));
-				for (int ele=0;ele<nElement;ele++) {
+				for (int ele=0;ele<rest_nElement;ele++) {
 					dout.writeInt(runs[ele].getLeft());
 					dout.writeInt(runs[ele].getMiddle());
 					dout.writeInt(runs[ele].getRight());
@@ -90,11 +90,11 @@ public class TinySEExternalSort implements ExternalSort {
 				run_num++;
 			}
 			dis.close();
-			System.out.println("RUN INIT : " + (System.currentTimeMillis() - run_init_stamp) + " msecs");
+//			System.out.println("RUN INIT : " + (System.currentTimeMillis() - run_init_stamp) + " msecs");
 
 
 			/* Merge Start */
-			long merge_stamp = System.currentTimeMillis();
+//			long merge_stamp = System.currentTimeMillis();
 			int prevStepIdx = 0;
 			while (true) {
 				/* Last Step */
@@ -144,14 +144,14 @@ public class TinySEExternalSort implements ExternalSort {
 					}
 				}
 			}
-			System.out.println("Merge done : " + (System.currentTimeMillis() - merge_stamp) + " msecs");
+//			System.out.println("Merge done : " + (System.currentTimeMillis() - merge_stamp) + " msecs");
 		} catch (EOFException | FileNotFoundException e) {
 			e.printStackTrace();
 		}
 	}
 
 	private void _mergeSort(ArrayList<DataInputStream> fileArr, String outfile) throws IOException {
-		long part_stamp = System.currentTimeMillis();
+//		long part_stamp = System.currentTimeMillis();
 		PriorityQueue<DataManager> pq = new PriorityQueue<>(new DataCmp());
 
 		/* init PQ */
@@ -187,7 +187,7 @@ public class TinySEExternalSort implements ExternalSort {
 		}
 		dout.close();
 		pq.clear();
-		System.out.println("Merge part : " + (System.currentTimeMillis() - part_stamp) + " msecs");
+//		System.out.println("Merge part : " + (System.currentTimeMillis() - part_stamp) + " msecs");
 	}
 
 	private static class DataManager {
