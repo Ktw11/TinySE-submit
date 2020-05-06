@@ -7,9 +7,6 @@ import java.util.Comparator;
 import java.util.PriorityQueue;
 import org.apache.commons.lang3.tuple.MutableTriple;
 import edu.hanyang.indexer.ExternalSort;
-import org.omg.CORBA.INTERNAL;
-
-
 
 public class TinySEExternalSort implements ExternalSort {
 	public void sort(String infile, String outfile, String tmpdir, int blocksize, int nblocks) throws IOException {
@@ -40,7 +37,6 @@ public class TinySEExternalSort implements ExternalSort {
 //			long run_init_stamp = System.currentTimeMillis();
 			/* Full Run */
 			int loop_size = (tot_input_size/12 - rest_nElement)/nElement;
-//			System.out.println("ele : " + nElement + " tot : "+tot_input_size + " rest : "+rest_nElement + " loop : "+loop_size);
 			for (int i = 0; i < loop_size; i++) {
 				if(i==0){
 					for (int j = 0; j < nElement; j++) {
@@ -61,7 +57,7 @@ public class TinySEExternalSort implements ExternalSort {
 
 				/* init runs to file */
 				dout = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(tmpdir + File.separator + "run_0_" + run_num + ".data"),blocksize));
-				for (int ele=0; ele<rest_nElement;ele++) {
+				for (int ele=0; ele<nElement;ele++) {
 					dout.writeInt(runs[ele].getLeft());
 					dout.writeInt(runs[ele].getMiddle());
 					dout.writeInt(runs[ele].getRight());
@@ -92,16 +88,16 @@ public class TinySEExternalSort implements ExternalSort {
 			dis.close();
 //			System.out.println("RUN INIT : " + (System.currentTimeMillis() - run_init_stamp) + " msecs");
 
-
 			/* Merge Start */
 //			long merge_stamp = System.currentTimeMillis();
+			DataInputStream run;
 			int prevStepIdx = 0;
 			while (true) {
 				/* Last Step */
 				if (run_num < nblocks) {
 					ArrayList<DataInputStream> fileList = new ArrayList<>();
 					for (int i = 0; i < run_num; i++) {
-						DataInputStream run = new DataInputStream(new BufferedInputStream(new FileInputStream(tmpdir + File.separator + "run_" + prevStepIdx + "_" + i + ".data"), blocksize));
+						run = new DataInputStream(new BufferedInputStream(new FileInputStream(tmpdir + File.separator + "run_" + prevStepIdx + "_" + i + ".data"), blocksize));
 						fileList.add(run);
 					}
 					_mergeSort(fileList, outfile);
@@ -119,7 +115,7 @@ public class TinySEExternalSort implements ExternalSort {
 						int full_cnt = run_num / nblocks;
 						for (int j = 0; j < full_cnt; j++) {
 							for (int i = 0; i < nblocks; i++) {
-								DataInputStream run = new DataInputStream(new BufferedInputStream(new FileInputStream(tmpdir + File.separator + "run_" + (kIter - 1) + "_" + (j*nblocks + i) + ".data"), blocksize));
+								run = new DataInputStream(new BufferedInputStream(new FileInputStream(tmpdir + File.separator + "run_" + (kIter - 1) + "_" + (j*nblocks + i) + ".data"), blocksize));
 								fileList.add(run);
 							}
 							_mergeSort(fileList, tmpdir + File.separator + "run_" + kIter + "_" + j + ".data");
@@ -129,7 +125,7 @@ public class TinySEExternalSort implements ExternalSort {
 						/* Rest */
 						if (run_num % nblocks > 0) {
 							for (int i = 0; i < run_num % nblocks; i++) {
-								DataInputStream run = new DataInputStream(new BufferedInputStream(new FileInputStream(tmpdir + File.separator + "run_" + (kIter - 1) + "_" + (full_cnt*nblocks + i) + ".data"),blocksize));
+								run = new DataInputStream(new BufferedInputStream(new FileInputStream(tmpdir + File.separator + "run_" + (kIter - 1) + "_" + (full_cnt*nblocks + i) + ".data"),blocksize));
 								fileList.add(run);
 							}
 							_mergeSort(fileList, tmpdir + File.separator + "run_" + kIter + "_" + full_cnt + ".data");
@@ -139,7 +135,6 @@ public class TinySEExternalSort implements ExternalSort {
 						run_num = run_num % (nblocks-1) == 0 ? run_num / (nblocks-1) : (run_num / (nblocks-1)) + 1;
 						if (run_num < nblocks){
 							prevStepIdx = tot_iter - 1;
-							continue;
 						}
 					}
 				}
@@ -153,6 +148,11 @@ public class TinySEExternalSort implements ExternalSort {
 	private void _mergeSort(ArrayList<DataInputStream> fileArr, String outfile) throws IOException {
 //		long part_stamp = System.currentTimeMillis();
 		PriorityQueue<DataManager> pq = new PriorityQueue<>(new DataCmp());
+		int arr_size = fileArr.size();
+		int[] byte_size_idx = new int[arr_size];
+		for(int i=0;i<arr_size;i++){
+			byte_size_idx[i] = fileArr.get(i).available();
+		}
 
 		/* init PQ */
 		for (DataInputStream f : fileArr) {
@@ -167,18 +167,20 @@ public class TinySEExternalSort implements ExternalSort {
 		/* Now Only Consider Final Step*/
 		DataOutputStream dout = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(outfile)));
 
-
 		/* Write Next Step File */
+		DataManager dm;
+		DataInputStream tmp;
 		while (!pq.isEmpty()) {
 			try {
-				DataManager dm = pq.poll();
+				dm = pq.poll();
 				dout.writeInt(dm.tuple.getLeft());
 				dout.writeInt(dm.tuple.getMiddle());
 				dout.writeInt(dm.tuple.getRight());
 				dout.flush();
-
-				if (fileArr.get(dm.index).available() > 0) {
-					dm.setTuple(fileArr.get(dm.index).readInt(), fileArr.get(dm.index).readInt(), fileArr.get(dm.index).readInt());
+				byte_size_idx[dm.index] -= 12;
+				tmp = fileArr.get(dm.index);
+				if (byte_size_idx[dm.index] > 0) {
+					dm.setTuple(tmp.readInt(), tmp.readInt(), tmp.readInt());
 					pq.add(dm);
 				}
 			} catch (Exception e) {
@@ -192,7 +194,7 @@ public class TinySEExternalSort implements ExternalSort {
 
 	private static class DataManager {
 		public MutableTriple<Integer, Integer, Integer> tuple = new MutableTriple<>();
-		int index = -1;
+		int index;
 
 		public DataManager(int left, int middle, int right, int idx){
 			this.tuple.setLeft(left);
@@ -259,21 +261,10 @@ public class TinySEExternalSort implements ExternalSort {
 //			int a= dis.readInt();
 //			int b= dis.readInt();
 //			int c= dis.readInt();
-//			System.out.println(a + " "+b+" "+c);
+////			System.out.println(a + " "+b+" "+c);
 //			cnt++;
 //		}
 //		System.out.println(cnt);
-//
-////		int cnt2 = 0;
-////		while (dis2.available() > 0 ){
-////			int a2= dis2.readInt();
-////			int b2= dis2.readInt();
-////			int c2= dis2.readInt();
-////			System.out.println(a2+" "+b2+" "+c2);
-////			cnt2++;
-////		}
-////
-////		System.out.println(cnt + " "+ cnt2);
 //		dis.close();
 //	}
 
