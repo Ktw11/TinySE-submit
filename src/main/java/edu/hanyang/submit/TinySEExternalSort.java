@@ -1,10 +1,8 @@
 package edu.hanyang.submit;
 
 import java.io.*;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.PriorityQueue;
+import java.util.*;
+
 import org.apache.commons.lang3.tuple.MutableTriple;
 import edu.hanyang.indexer.ExternalSort;
 
@@ -20,76 +18,33 @@ public class TinySEExternalSort implements ExternalSort {
 			dir.mkdirs();
 		}
 
-		DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream(infile),blocksize));
-		DataOutputStream dout;
-
+		RunManager rm = new RunManager();
+		rm.dis = new DataInputStream(new BufferedInputStream(new FileInputStream(infile),blocksize));
 		// 하나의 Run에 들어가는 최대 튜플 갯수
-		int nElement = (nblocks * blocksize) / 12;
-		MutableTriple<Integer,Integer,Integer>[] runs = new MutableTriple[nElement];
-
+		int nElement = nblocks * blocksize / Integer.SIZE / 3;
 		// 읽을 파일의 Byte 수
-		int tot_input_size = dis.available();
+		int tot_input_size = rm.dis.available();
 		// 마지막 Run에 들어가는 튜플 갯수
-		int rest_nElement = (tot_input_size/12) % nElement;
+		int rest_nElement = (tot_input_size/ 12) % nElement;
+		rm.initManager(infile,blocksize,nElement,tmpdir);
 
 		int run_num = 0;
 		try {
-//			long run_init_stamp = System.currentTimeMillis();
 			/* Full Run */
-			int loop_size = (tot_input_size/12 - rest_nElement)/nElement;
+			int loop_size = (tot_input_size/ 12)/nElement;
 			for (int i = 0; i < loop_size; i++) {
-				if(i==0){
-					for (int j = 0; j < nElement; j++) {
-						runs[j] = new MutableTriple<>();
-						runs[j].setLeft(dis.readInt());
-						runs[j].setMiddle(dis.readInt());
-						runs[j].setRight(dis.readInt());
-					}
-				}else{
-					for (int j = 0; j < nElement; j++) {
-						runs[j].setLeft(dis.readInt());
-						runs[j].setMiddle(dis.readInt());
-						runs[j].setRight(dis.readInt());
-					}
-				}
-
-				Arrays.sort(runs,new TripleSort());
-
-				/* init runs to file */
-				dout = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(tmpdir + File.separator + "run_0_" + run_num + ".data"),blocksize));
-				for (int ele=0; ele<nElement;ele++) {
-					dout.writeInt(runs[ele].getLeft());
-					dout.writeInt(runs[ele].getMiddle());
-					dout.writeInt(runs[ele].getRight());
-				}
-//				runs.clear();
+				make_runs(rm,run_num);
 				run_num++;
-				dout.close();
 			}
 
 			/* Rest Run */
 			if(rest_nElement != 0) {
-				for (int i = 0; i < rest_nElement; i++) {
-					runs[i].setLeft(dis.readInt());
-					runs[i].setMiddle(dis.readInt());
-					runs[i].setRight(dis.readInt());
-				}
-
-				Arrays.sort(runs,0,rest_nElement,new TripleSort());
-				dout = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(tmpdir + File.separator + "run_0_" + run_num + ".data"),blocksize));
-				for (int ele=0;ele<rest_nElement;ele++) {
-					dout.writeInt(runs[ele].getLeft());
-					dout.writeInt(runs[ele].getMiddle());
-					dout.writeInt(runs[ele].getRight());
-				}
-				dout.close();
+				rm.nElement = rest_nElement;
+				make_runs(rm,run_num);
 				run_num++;
 			}
-			dis.close();
-//			System.out.println("RUN INIT : " + (System.currentTimeMillis() - run_init_stamp) + " msecs");
 
 			/* Merge Start */
-//			long merge_stamp = System.currentTimeMillis();
 			DataInputStream run;
 			int prevStepIdx = 0;
 			while (true) {
@@ -145,8 +100,29 @@ public class TinySEExternalSort implements ExternalSort {
 		}
 	}
 
+	private void make_runs(RunManager rm, int run_num) throws IOException {
+		int nElement = rm.nElement;
+		ArrayList<MutableTriple<Integer,Integer,Integer>> runs = new ArrayList<>(nElement);
+		for (int j = 0; j < nElement; j++) {
+			MutableTriple<Integer, Integer, Integer> run = new MutableTriple<>();
+			rm.readFile();
+			rm.replaceTuple(run);
+			runs.add(run);
+		}
+		runs.sort(new TripleSort());
+		/* init runs to file */
+		DataOutputStream dout = new DataOutputStream(new BufferedOutputStream(new FileOutputStream(rm.tmpdir + File.separator + "run_0_" + run_num + ".data"),rm.blocksize));
+		for(MutableTriple<Integer,Integer,Integer> tmp : runs){
+			dout.writeInt(tmp.getLeft());
+			dout.writeInt(tmp.getMiddle());
+			dout.writeInt(tmp.getRight());
+		}
+		dout.close();
+		runs.clear();
+	}
+
+
 	private void _mergeSort(ArrayList<DataInputStream> fileArr, String outfile) throws IOException {
-//		long part_stamp = System.currentTimeMillis();
 		PriorityQueue<DataManager> pq = new PriorityQueue<>(new DataCmp());
 		int arr_size = fileArr.size();
 		int[] byte_size_idx = new int[arr_size];
@@ -189,7 +165,6 @@ public class TinySEExternalSort implements ExternalSort {
 		}
 		dout.close();
 		pq.clear();
-//		System.out.println("Merge part : " + (System.currentTimeMillis() - part_stamp) + " msecs");
 	}
 
 	private static class DataManager {
@@ -213,6 +188,33 @@ public class TinySEExternalSort implements ExternalSort {
 			return tuple;
 		}
 
+	}
+
+	private static class RunManager{
+		DataInputStream dis;
+		int nElement;
+		String path;
+		String tmpdir;
+		int blocksize;
+		MutableTriple<Integer,Integer,Integer> tmp = new MutableTriple<>();
+		public void initManager(String path, int blocksize, int nElement, String tmpdir) {
+			this.nElement = nElement;
+			this.path = path;
+			this.blocksize = blocksize;
+			this.tmpdir = tmpdir;
+		}
+		public RunManager(){
+		}
+		private void replaceTuple(MutableTriple<Integer,Integer,Integer> run) {
+			run.setLeft(tmp.getLeft());
+			run.setMiddle(tmp.getMiddle());
+			run.setRight(tmp.getRight());
+		}
+		private void readFile() throws IOException {
+			tmp.setLeft(dis.readInt());
+			tmp.setMiddle(dis.readInt());
+			tmp.setRight(dis.readInt());
+		}
 	}
 
 	private static class DataCmp implements Comparator<DataManager>{
@@ -255,17 +257,16 @@ public class TinySEExternalSort implements ExternalSort {
 	}
 
 //	public static void main(String[] args) throws IOException {
-//		DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream("./tmp/run_0_0.data")));
+//		DataInputStream dis = new DataInputStream(new BufferedInputStream(new FileInputStream("./tmp/sorted.data")));
 //		int cnt = 0;
 //		while(dis.available() > 0){
 //			int a= dis.readInt();
 //			int b= dis.readInt();
 //			int c= dis.readInt();
-////			System.out.println(a + " "+b+" "+c);
+//			System.out.println(a + " "+b+" "+c);
 //			cnt++;
 //		}
 //		System.out.println(cnt);
 //		dis.close();
 //	}
-
 }
